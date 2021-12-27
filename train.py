@@ -88,8 +88,6 @@ def train(run, cont_file=None, cont_file2=None):
     game_number = 0
 
     vfa = VFA()
-    vfa_evaluation = VFA()
-    vfa_opponent = VFA()
     if cont_file is not None: 
         print(f"bot1 play using: {cont_file}")
         vfa.load_state_dict(torch.load(cont_file), strict=False)
