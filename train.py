@@ -91,9 +91,8 @@ def train(run, cont_file=None, cont_file2=None):
     vfa_evaluation = VFA()
     vfa_opponent = VFA()
     if cont_file is not None: 
-        print(f"actions selection using: {cont_file}")
+        print(f"bot1 play using: {cont_file}")
         vfa.load_state_dict(torch.load(cont_file), strict=False)
-
         cont_file = cont_file.split("/")[-1]
         game_number = int(cont_file.split("_")[1].split("m")[-1]) + 1
         iter_count = int(cont_file[:-5].split("_")[-1]) + 1
@@ -101,12 +100,6 @@ def train(run, cont_file=None, cont_file2=None):
 
         if cont_file2 is None: 
             cont_file2 = cont_file
-            
-    if cont_file2 is not None: 
-        vfa_evaluation.load_vfa_params(torch.load(cont_file2))
-        vfa_opponent.load_vfa_params(torch.load(cont_file2))
-        print(f"evaluation using: {cont_file2}")
-        print(f"bot2 using: {cont_file2}")
 
 
     adam = torch.optim.Adam(vfa.parameters(), lr=0.000125)
@@ -117,6 +110,11 @@ def train(run, cont_file=None, cont_file2=None):
 
     bot1 = HaiBotLong(color="W")
     bot2 = HaiBotLong(color="B")
+    if cont_file2 is not None: 
+        bot1.load_vfa_params(torch.load(cont_file2))
+        bot2.load_vfa_params(torch.load(cont_file2))
+        print(f"evaluation using: {cont_file2}")
+        print(f"bot2 using: {cont_file2}")
 
     replay_buffer = []
     last_five_games = []
