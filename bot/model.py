@@ -7,7 +7,6 @@ from sklearn.preprocessing import OneHotEncoder
 from scipy import sparse
 import chess
 
-
 class VFA(nn.Module): 
     """
     Value function approximation. 
@@ -18,15 +17,15 @@ class VFA(nn.Module):
         super().__init__()
         self.conv1 = nn.ModuleList(
             [
-                nn.Conv2d(35, 3, kernel_size=i, padding='same')
+                nn.Conv2d(38, 3, kernel_size=i, padding='same')
                 for i in range(1, 9)
             ]
         )
         self.bn1 = nn.BatchNorm2d(24)
         self.conv2 = nn.Conv2d(24, 16, kernel_size=4)
         self.bn2 = nn.BatchNorm2d(16)
-        self.lin1 = nn.Linear(402, 16)
-        self.lin2 = nn.Linear(16, 1)
+        self.l1 = nn.Linear(404, 32)
+        self.l2 = nn.Linear(32, 1)
 
 
     def forward(self, x, checked): 
@@ -39,8 +38,8 @@ class VFA(nn.Module):
         x = self.bn2(x)
         x = F.leaky_relu(x).flatten(start_dim=1)
         x = torch.cat([x, checked], dim=1)
-        x = self.lin1(x)
-        x = self.lin2(F.leaky_relu(x))
+        x = self.l1(x)
+        x = self.l2(F.leaky_relu(x))
         return x
 
 
@@ -86,7 +85,7 @@ class BoardMoveTransformer():
 
         x_cat = torch.cat([x1, x2, x3, x4], dim=1)
         return x_cat
-
+        
 
     def get_conv_map(self, chess_squares): 
         J = np.array(chess_squares)
@@ -119,6 +118,33 @@ class BoardMoveTransformer():
         return torch.cat([opp_attackers, attacked_pos, attackable_pos], dim=1)
 
 
+    def get_one_step_ahead(self, board): 
+        opp_check = False
+        opp_checkmate = False
+        opp_checkers_from = []
+        opp_checkers_to = []
+        opp_to = []
+
+        for m in board.legal_moves: 
+            hypo_board = board.copy()
+            hypo_board.push(m)
+            if hypo_board.is_check(): 
+                opp_check = True
+                opp_checkers_to.append(m.to_square)
+                opp_checkers_from.append(m.from_square)
+                if hypo_board.is_checkmate():
+                    opp_checkmate = True
+            opp_to.append(m.to_square)
+
+        opp_checkers_from = self.get_conv_map(opp_checkers_from)
+        opp_checkers_to = self.get_conv_map(opp_checkers_to)
+        opp_to = self.get_conv_map(opp_to)
+        opp_checkers = torch.cat([opp_checkers_from, opp_checkers_to, opp_to], dim=1)
+
+        return opp_check, opp_checkmate, opp_checkers
+
+
+
     def encode_board_move(self, board_list): 
 
         if not isinstance(board_list, list): 
@@ -133,15 +159,19 @@ class BoardMoveTransformer():
             x_cat1 = self.get_base_features(int_array1)
             x_cat2 = self.get_base_features(int_array2)
             x_cat3 = self.get_extra_features(board[1])
+            oc, ocm, ocheckers = self.get_one_step_ahead(board[1])
 
-            x_cat = torch.cat([x_cat1, (x_cat2-x_cat1), x_cat3], dim=1)
+            x_cat = torch.cat([x_cat1, (x_cat2-x_cat1), x_cat3, ocheckers], dim=1)
             x_ls.append(x_cat)
 
-            checked.append(1 if board[1].is_check() else 0)
-            checked.append(1 if board[1].is_checkmate() else 0)
+
+            checked.append(int(board[1].is_check()))
+            checked.append(int(board[1].is_checkmate()))
+            checked.append(int(oc))
+            checked.append(int(ocm))
 
 
-        checked = torch.Tensor(checked).reshape(-1, 2)
+        checked = torch.Tensor(checked).reshape(-1, 4)
         x = torch.cat(x_ls, dim=0)
 
         return x, checked

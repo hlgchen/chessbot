@@ -14,22 +14,21 @@ import torch.utils.tensorboard as tbx
 import time
 
 reward_spec = {
-    "nothing": -0.1,
-    # "capture": 10, 
+    "nothing": -1,
     "capture_dict": {
-        "p": 0.5, 
-        "r": 1, 
-        "n": 1, 
-        "b": 1,
-        "q": 2,
+        "p": 5, 
+        "r": 10, 
+        "n": 10, 
+        "b": 10,
+        "q": 20,
     },
     # "enemy_capture": 0,
-    "checks": 0.2,
-    "checked": -0.2, 
+    "checks": 2,
+    "checked": -2, 
     "fivefold":0,
     "draw": 0, 
-    "win": 20, 
-    "defeat": -20,
+    "win": 200, 
+    "defeat": -200,
 }
 
 
@@ -82,16 +81,19 @@ def get_reward(last_board, board, last_board_opp, move1, move2, white):
 def train(run, cont_file=None, cont_file2=None): 
     #hyperparams: 
     C = 20000
-    gamma = 0.4
+    gamma = 0.5
 
     iter_count = 0
     c_counter = 0
     game_number = 0
 
     vfa = VFA()
+    vfa_evaluation = VFA()
+    vfa_opponent = VFA()
     if cont_file is not None: 
-        print(f"evaluation using: {cont_file}")
-        vfa.load_state_dict(torch.load(cont_file))
+        print(f"actions selection using: {cont_file}")
+        vfa.load_state_dict(torch.load(cont_file), strict=False)
+
         cont_file = cont_file.split("/")[-1]
         game_number = int(cont_file.split("_")[1].split("m")[-1]) + 1
         iter_count = int(cont_file[:-5].split("_")[-1]) + 1
@@ -99,20 +101,22 @@ def train(run, cont_file=None, cont_file2=None):
 
         if cont_file2 is None: 
             cont_file2 = cont_file
+            
+    if cont_file2 is not None: 
+        vfa_evaluation.load_vfa_params(torch.load(cont_file2))
+        vfa_opponent.load_vfa_params(torch.load(cont_file2))
+        print(f"evaluation using: {cont_file2}")
+        print(f"bot2 using: {cont_file2}")
 
 
-    adam = torch.optim.Adam(vfa.parameters(), lr=0.001)
-    scheduler = StepLR(adam, 100, 0.9)
+    adam = torch.optim.Adam(vfa.parameters(), lr=0.000125)
+    scheduler = StepLR(adam, 100, 0.5)
     loss_fn = nn.MSELoss()
 
     logger = tbx.SummaryWriter(f"out/log/{run}")
 
     bot1 = HaiBotLong(color="W")
     bot2 = HaiBotLong(color="B")
-    bot1.load_vfa_params(vfa.state_dict())
-    bot2.load_vfa_params(torch.load(cont_file2))
-    print(f"bot1 using: {cont_file}")
-    print(f"bot2 using: {cont_file2}")
 
     replay_buffer = []
     last_five_games = []
@@ -128,10 +132,14 @@ def train(run, cont_file=None, cont_file2=None):
         if sum(last_five_games) == 5: 
             print("************* new weights OPPONENT *************")
             bot2.load_vfa_params(vfa.state_dict())
+            print("*********** new weights EVALUATION ***********")
+            bot1.load_vfa_params(vfa.state_dict())
+            game_number = g
             c_counter = 0
-        e = 1/(g+3)**0.5
+            last_five_games = []
+        e = 1/(g-game_number+100)**0.5
 
-        replay_buffer = replay_buffer[-2000:]
+        replay_buffer = replay_buffer[-3000:]
 
 
         board = chess.Board()
@@ -163,7 +171,7 @@ def train(run, cont_file=None, cont_file2=None):
                     break
 
             last_board2 = board.copy()
-            action2, features2, checked_feature2 = bot2.play(board, e=e, training=True)
+            action2, features2, checked_feature2 = bot2.play(board, e=e/2, training=True)
             move2 = board.parse_uci(action2)
             board.push(move2)
             outcome = board.outcome()
@@ -245,7 +253,7 @@ def train(run, cont_file=None, cont_file2=None):
 
 if __name__ == "__main__": 
     train(
-        run="local2",
-        cont_file="out/models/champs/m_410_iter_35396.ckpt", 
-        cont_file2="out/models/champs/m_410_iter_35396.ckpt", 
+        run="v8",
+        cont_file="out/models/v8/m_280_iter_23450.ckpt", 
+        cont_file2="out/models/v8/m_280_iter_23450.ckpt", 
         )

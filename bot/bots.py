@@ -24,7 +24,7 @@ class HaiBotLong():
 
     def load_vfa_params(self, model_state): 
         """Updates model parameters of self.vfa with model_state."""
-        self.vfa.load_state_dict(model_state)
+        self.vfa.load_state_dict(model_state, strict=False)
         for param in self.vfa.parameters(): 
             param.requires_grad = False
 
@@ -46,7 +46,7 @@ class HaiBotLong():
 
         """
         top3 = values.topk(min(3, values.shape[0]), dim=0)[0].min()
-        max_mask = values.where(values > top3, torch.Tensor([0])).double().detach()
+        max_mask = values.where(values >= top3, torch.Tensor([0])).double().detach()
         max_mask = (max_mask - max_mask.min())**4
         # max_mask = (values == values.max()).double()
 
