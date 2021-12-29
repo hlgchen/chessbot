@@ -1,7 +1,9 @@
 import pygame 
 import chess
 import time
+import torch
 from bot.bots import HaiBotLong
+from bot.model import VFA
 
 pygame.init()
 pygame.font.init() 
@@ -123,8 +125,11 @@ def mark_last_move(last_move, screen):
 
 
 def main():             
-    bot_path = "out/models/v8/m_280_iter_23450.ckpt"
-    bot = HaiBotLong(color="B", model_path=bot_path)
+    bot_path = "out/models/v8/m_490_iter_42784.ckpt"
+    vfa = VFA()
+    vfa.load_state_dict(torch.load(bot_path))
+
+    bot = HaiBotLong(color="B", vfa=vfa)
     bot_play = bot_play_wrapper(bot)
 
     move = [None, None]
