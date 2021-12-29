@@ -4,9 +4,8 @@ from .model import VFA, BoardMoveTransformer
 
 
 class HaiBotLong():
-    def __init__(self, color, model_path = None): 
+    def __init__(self, color="W", vfa=None): 
         self.w = color == "W"
-        self.vfa = VFA()
         self.board_move_transformer = BoardMoveTransformer()
         self.move_mirror_dict = {
             "1": "8", 
@@ -18,20 +17,25 @@ class HaiBotLong():
             "7": "2", 
             "8": "1"
         }
-        if model_path is not None: 
-            self.load_vfa_params(torch.load(model_path))
+        if vfa is None: 
+            self.vfa = VFA()
+        else: 
+            self.vfa = vfa
 
 
-    def load_vfa_params(self, model_state): 
+    def load_new_vfa(self, vfa): 
         """Updates model parameters of self.vfa with model_state."""
-        self.vfa.load_state_dict(model_state, strict=False)
+        self.vfa = VFA()
+        self.vfa.load_state_dict(vfa.state_dict())
         for param in self.vfa.parameters(): 
             param.requires_grad = False
 
 
     def select_move(self, values, action_space, e): 
         """
-        Samples a move from the action_spce, given values calculated by vfa and e. 
+        Samples a move from the action_space, given values calculated by vfa and e. 
+        With probability e a random move is chosen, with probability (1-e) a move is chosen 
+        amongst the top 3 moves.
 
         Params: 
             - values(torch.tensor): tensor with shape (n_actions, 1), contains 
@@ -59,7 +63,9 @@ class HaiBotLong():
 
     def get_best_action(self, board, vfa, e=0): 
         """
-        Returns a move given the board. 
+        Returns a move given the board. If e is 0 the move with the best value accoring to vfa is returned.
+        Otherise with probability e a random move is chosen, with probability (1-e) a move is chosen 
+        amongst the top 3 moves. 
 
         Params: 
             - _board(chess.board): current board, should be the turn of this bot
@@ -98,33 +104,21 @@ class HaiBotLong():
         return move, features, checked_feature
 
     
-    def get_value_best_move(self, board, vfa): 
-        """
-        For Double Q-learning, use older Q network for evaluation (self.vfa)
-        Takes board and vfa for action seclection. Selects the action with highest 
-        value accoring to vfa and returns value estimation of self.vfa .
-        """
-        move, x, checked_feature = self.get_best_action(board, vfa)
-        if move is None: 
-            return None
-        else: 
-            return self.vfa(x, checked_feature)
-
-    
     def mirror_move(self, move): 
         """Take uci move as string and mirror the move."""
         move = [self.move_mirror_dict.get(l, l) for l in move]
         return "".join(move)
 
 
-    def play(self, _board, e=0.1, vfa=None, training=False):
-        """"Make a play based on the value function approximationa and current board. 
+    def play(self, _board, e=0.05, vfa=None, training=False):
+        """"Make a play based on the value function approximation vfa and current board. 
         Returns the move to be made. 
 
         Params:
             - _board(chess.board): current board, should be the turn of this bot
             - e(float): value between 0 and 1, controls e-greedy 
             - vfa(VFA): value function approximator to be used for selecting the best action
+                        if None, self.vfa is used
 
         Returns: 
             - move (string): uci move as a string

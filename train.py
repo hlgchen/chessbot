@@ -76,9 +76,17 @@ def get_reward(last_board, board, last_board_opp, move1, move2, white):
             reward = reward_spec["defeat"]
 
     return reward
+
+
+def continue_training_from_file(file): 
+        cont_file = file.split("/")[-1]
+        game_number = int(cont_file.split("_")[1].split("m")[-1]) + 1
+        iter_count = int(cont_file[:-5].split("_")[-1]) + 1
+        print(f"cont. game: {game_number}, iter: {iter_count}")
+        return game_number, iter_count
     
 
-def train(run, cont_file=None, cont_file2=None): 
+def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file=None): 
     #hyperparams: 
     C = 20000
     gamma = 0.5
@@ -87,32 +95,31 @@ def train(run, cont_file=None, cont_file2=None):
     c_counter = 0
     game_number = 0
 
-    vfa = VFA()
-    if cont_file is not None: 
-        print(f"bot1 play using: {cont_file}")
-        vfa.load_state_dict(torch.load(cont_file), strict=False)
-        cont_file = cont_file.split("/")[-1]
-        game_number = int(cont_file.split("_")[1].split("m")[-1]) + 1
-        iter_count = int(cont_file[:-5].split("_")[-1]) + 1
-        print(f"cont. game: {game_number}, iter: {iter_count}")
+    action_vfa = VFA()
+    evaluation_vfa = VFA()
+    opponent_vfa = VFA()
 
-        if cont_file2 is None: 
-            cont_file2 = cont_file
+    if action_vfa_file is not None: 
+        print(f"action selection using: {action_vfa_file}")
+        action_vfa.load_state_dict(torch.load(action_vfa_file), strict=False)
+        game_number, iter_count = continue_training_from_file(action_vfa_file)
+    if evaluation_vfa_file is not None: 
+        print(f"action evaluation using: {evaluation_vfa_file}")
+        evaluation_vfa.load_state_dict(torch.load(evaluation_vfa_file), strict=False)
+    if opponent_vfa_file is not None: 
+        print(f"opponent using: {opponent_vfa_file}")
+        opponent_vfa.load_state_dict(torch.load(opponent_vfa_file), strict=False)
 
 
-    adam = torch.optim.Adam(vfa.parameters(), lr=0.000125)
+    adam = torch.optim.Adam(action_vfa.parameters(), lr=0.001)
     scheduler = StepLR(adam, 100, 0.5)
     loss_fn = nn.MSELoss()
 
     logger = tbx.SummaryWriter(f"out/log/{run}")
 
-    bot1 = HaiBotLong(color="W")
-    bot2 = HaiBotLong(color="B")
-    if cont_file2 is not None: 
-        bot1.load_vfa_params(torch.load(cont_file2))
-        bot2.load_vfa_params(torch.load(cont_file2))
-        print(f"evaluation using: {cont_file2}")
-        print(f"bot2 using: {cont_file2}")
+    bot1 = HaiBotLong()
+    bot2 = HaiBotLong()
+    bot2.load_new_vfa(opponent_vfa)
 
     replay_buffer = []
     last_five_games = []
@@ -121,35 +128,39 @@ def train(run, cont_file=None, cont_file2=None):
 
     for g in range(game_number, game_number + 10000): 
 
-        print(f"chess game: {g}")
+        train_white = random.randint(0, 1) == 0
+        bot1.w = train_white
+        bot2.w = not train_white
+        print(f"chess game: {g}, train_white: {train_white}")
 
         # if old opponent can be beaten regularly (5times in a row) --> new opponent
         last_five_games = last_five_games[-5:]
         if sum(last_five_games) == 5: 
             print("************* new weights OPPONENT *************")
-            bot2.load_vfa_params(vfa.state_dict())
+            bot2.load_new_vfa(action_vfa)
             print("*********** new weights EVALUATION ***********")
-            bot1.load_vfa_params(vfa.state_dict())
+            evaluation_vfa.load_state_dict(action_vfa.state_dict())
+            for param in evaluation_vfa.parameters(): 
+                param.requires_grad = False
             game_number = g
             c_counter = 0
             last_five_games = []
-        e = 1/(g-game_number+100)**0.5
+        e = 1/(g-game_number+40)**0.7
 
-        replay_buffer = replay_buffer[-3000:]
-
+        replay_buffer = replay_buffer[-4000:]
 
         board = chess.Board()
-        move1 = move2 = None
+        move1 = move2 = outcome = None
         avg_loss = []
-        outcome = None
 
         while True: 
             
-            last_board1 = board.copy()
-            action1, features1, checked_feature1 = bot1.play(board, vfa=vfa, e=e, training=True)
-            move1 = board.parse_uci(action1)
-            board.push(move1)
-            outcome = board.outcome()
+            if train_white: 
+                last_board1 = board.copy()
+                action1, features1, checked_feature1 = bot1.play(board, vfa=action_vfa, e=e, training=True)
+                move1 = board.parse_uci(action1)
+                board.push(move1)
+                outcome = board.outcome()
             
             if move2 is not None: 
             #     # if game ended, add information for bot2 before stopping loop
@@ -172,84 +183,93 @@ def train(run, cont_file=None, cont_file2=None):
             board.push(move2)
             outcome = board.outcome()
             
-            if move2 is not None: 
-                reward1 = get_reward(last_board1, board, last_board2, move1, move2, white=True)
-                replay_buffer.append((features1, checked_feature1, reward1, board))
+            if train_white: 
+                if move2 is not None: 
+                    reward1 = get_reward(last_board1, board, last_board2, move1, move2, white=True)
+                    replay_buffer.append((features1, checked_feature1, reward1, board))
 
-                # if game ended, add information for bot2 before stopping loop
-                if outcome is not None:
-                    factor = -1 if (abs(reward1) == reward_spec["win"]) else 1
-                    board.push_uci("0000") # push null move for bot1, so that it's the turn of bot2 again
-                    replay_buffer.append((
-                        features2, 
-                        checked_feature2, 
-                        factor * reward1, 
-                        board.mirror()
-                    ))
-                    break
+                    # if game ended, add information for bot2 before stopping loop
+                    if outcome is not None:
+                        factor = -1 if (abs(reward1) == reward_spec["win"]) else 1
+                        board.push_uci("0000") # push null move for bot1, so that it's the turn of bot2 again
+                        replay_buffer.append((
+                            features2, 
+                            checked_feature2, 
+                            factor * reward1, 
+                            board.mirror()
+                        ))
+                        break
+            train_white = True # if train_white was False, bot2 starts
             
+            if len(replay_buffer) > 500: 
+                # minibatch training
+                targets = []
+                features = []
+                checked_feature = []
+                minibatch = random.choices(replay_buffer, k=58) + replay_buffer[-8:]
+                for tup in minibatch: 
+                    m, x1, x2 = bot1.get_best_action(tup[3], action_vfa,e=0)
+                    if m is not None: 
+                        q_vfa_old = evaluation_vfa(x1, x2)
+                        y = torch.Tensor([tup[2]]) + gamma *  q_vfa_old
+                    else: 
+                        y = torch.Tensor([[tup[2]]])
 
-            # minibatch training
-            targets = []
-            features = []
-            checked_feature = []
-            minibatch = random.choices(replay_buffer, k=58) + replay_buffer[-8:]
-            for tup in minibatch: 
-                q_vfa_old = bot1.get_value_best_move(tup[3], vfa)
-                if q_vfa_old is None: 
-                    y = torch.Tensor([[tup[2]]])
-                else: 
-                    y = torch.Tensor([tup[2]]) + gamma *  q_vfa_old
+                    targets.append(y)
+                    features.append(tup[0])
+                    checked_feature.append(tup[1])
 
-                targets.append(y)
-                features.append(tup[0])
-                checked_feature.append(tup[1])
+                targets = torch.cat(targets)
+                features = torch.cat(features, dim=0)
+                checked_feature = torch.cat(checked_feature, dim=0)
+                preds = action_vfa(features, checked_feature)
 
-            targets = torch.cat(targets)
-            features = torch.cat(features, dim=0)
-            checked_feature = torch.cat(checked_feature, dim=0)
-            preds = vfa(features, checked_feature)
+                adam.zero_grad()
+                loss = loss_fn(preds, targets)
+                loss.backward()
+                adam.step()
 
-            adam.zero_grad()
-            loss = loss_fn(preds, targets)
-            loss.backward()
-            adam.step()
+                # ****** progress monitoring ******
+                iter_count += 1
+                c_counter += 1
 
-            # ****** progress monitoring ******
-            iter_count += 1
-            c_counter += 1
-
-            if iter_count % 20 == 0: 
-                end = time.time()
-                diff = round(end-start, 6)
-                print(f"iter: {iter_count}, loss: {loss}, took {diff} seconds")
-                start = time.time()
-            ## after certain number of iteration: update vfa params for evaluation
-            if c_counter % C == 0: 
-                print("*********** new weights EVALUATION ***********")
-                bot1.load_vfa_params(vfa.state_dict())
-            
-            avg_loss.append(loss)
+                if iter_count % 20 == 0: 
+                    end = time.time()
+                    diff = round(end-start, 6)
+                    print(f"iter: {iter_count}, loss: {loss}, took {diff} seconds")
+                    start = time.time()
+                ## after certain number of iteration: update vfa params for evaluation
+                if c_counter % C == 0: 
+                    print("*********** new weights EVALUATION ***********")
+                    evaluation_vfa.load_state_dict(action_vfa.state_dict())
+                    for param in evaluation_vfa.parameters(): 
+                        param.requires_grad = False
+                
+                avg_loss.append(loss)
+            else: 
+                print("replaybuffer:", len(replay_buffer))
 
         print(f"Game {g} outcome: {outcome}")
-        last_five_games.append(outcome.winner ==1)
+        if len(replay_buffer) > 500: 
+            last_five_games.append(outcome.winner == int(bot1.w))
 
-        if g % 10 == 0: 
-            save_data(board.move_stack, f"out/games/{run}/game_{g}.dat")
-            torch.save(vfa.state_dict(), f"out/models/{run}/m_{g}_iter_{iter_count}.ckpt")
-            
-        logger.add_scalar("loss", sum(avg_loss)/len(avg_loss), g)
-        logger.add_scalar("number_moves", len(board.move_stack),g)
-        logger.add_scalar("number_living", len(board.piece_map()),g)
-        logger.flush()
+            if g % 10 == 0: 
+                save_data(board.move_stack, f"out/games/{run}/game_{g}.dat")
+                torch.save(action_vfa.state_dict(), f"out/models/{run}/m_{g}_iter_{iter_count}.ckpt")
+                
+            logger.add_scalar("loss", sum(avg_loss)/len(avg_loss), g)
+            logger.add_scalar("number_moves", len(board.move_stack),g)
+            logger.add_scalar("number_living", len(board.piece_map()),g)
+            logger.flush()
 
-        scheduler.step()
+            scheduler.step()
 
 
 
 if __name__ == "__main__": 
     train(
-        run="v8",
-        cont_file="out/models/v8/m_280_iter_23450.ckpt", 
-        cont_file2="out/models/v8/m_280_iter_23450.ckpt", 
+        run="v8b",
+        action_vfa_file="out/models/v8/m_510_iter_44622.ckpt", 
+        evaluation_vfa_file="out/models/v8/m_480_iter_41792.ckpt", 
+        opponent_vfa_file="out/models/v8/m_480_iter_41792.ckpt", 
         )

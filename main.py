@@ -28,11 +28,13 @@ chess_icons["r"] = pygame.image.load('icons/black_rook.png')
 chess_icons["p"] = pygame.image.load('icons/black_pawn.png')
 
 def map_chess_square_coordinates(chess_square): 
+    """Takes chess_square and returns pixel position"""
     x = ((chess_square%8)) * 100
     y = (7 - (chess_square//8)) * 100 
     return (x, y)
 
 def map_coordinates_chess_square(x, y): 
+    """Takes pixel position and returns chess square"""
     chess_square = (x//100) + (7 - y//100) * 8
     return chess_square
 
@@ -43,6 +45,9 @@ def draw_board(board, screen):
 
 
 def check_selected_square(selected_square, board): 
+    """Checks if selected square is one with your chess piece. Returns true if if selected_square 
+    has a white chess piece, otherwise returns False.
+    """
     if selected_square is None: 
         result = None
     else: 
@@ -54,6 +59,9 @@ def check_selected_square(selected_square, board):
         return str(result).isupper()
 
 def promotion(move, board): 
+    """Returns 5 (queen) if the move involves a white pawn moving to the end of the board. 
+    Each pawn that reaches the other side automatically becomes a queen.
+    """
     pawn = str(board.piece_at(move[0])).lower() == "p"
     end = move[1] in range(56, 64)
     if pawn & end: 
@@ -61,7 +69,18 @@ def promotion(move, board):
 
 
 def update_board(move, board, last_move): 
-    """Makes move and updates the screen."""
+    """Makes move and updates the screen.
+    
+    params: 
+        - move(list/tuple): with two elements, the first element is chesssquare of piece to be moved
+                            the second element is the place to be moved to. 
+        - board(chess.Board):
+        - last_move(list): mutable list object in which to save the current move (becomes the last move)
+                        (i.e. this is used to colorize the last move in the game)
+
+    returns: 
+        True if move was executed successfully, otherwise False
+    """
     promote = promotion(move, board)
     move_uci = chess.Move(*move, promotion=promote).uci()
     try: 
@@ -76,8 +95,10 @@ def update_board(move, board, last_move):
         return False
 
 
-def bot_play_wrapper(bot, e=0.02): 
+def bot_play_wrapper(bot, e=0.0001): 
+    """"Wrapper function that returns the function bot_play."""
     def bot_play(board, last_move):
+        """bot makes play and saves move in last_move.s"""
         outcome = board.outcome() 
         if outcome is None:  
             action_bot = bot.play(board, e=e, training=False)
@@ -91,6 +112,8 @@ def bot_play_wrapper(bot, e=0.02):
 
 
 def check_outcome(outcome, screen): 
+    """takes chess.Outcome an checks who has won (if there is a winner). 
+    Displays the result if there is one."""
     if outcome is not None: 
         if outcome.winner is None: 
             text = "You are lucky to have played draw with HaiBotLong."
@@ -107,6 +130,8 @@ def check_outcome(outcome, screen):
 
 
 def mark_in_check(in_check_list, board, screen): 
+    """If the current side playing is in check, the square with the king is saved in 
+    in_check_list, the position is marked in the game"""
     in_check_list.clear()
     if board.is_check(): 
         s = pygame.Surface((100,100), pygame.SRCALPHA) 
@@ -117,6 +142,7 @@ def mark_in_check(in_check_list, board, screen):
 
 
 def mark_last_move(last_move, screen): 
+    """Marks squares in last move in green."""
     s = pygame.Surface((100,100), pygame.SRCALPHA) 
     s.fill((0,255,0,50))      
     for square in last_move:   
@@ -125,10 +151,11 @@ def mark_last_move(last_move, screen):
 
 
 def main():             
+    # load model
     bot_path = "out/models/v8/m_490_iter_42784.ckpt"
     vfa = VFA()
     vfa.load_state_dict(torch.load(bot_path))
-
+    # initialize bot
     bot = HaiBotLong(color="B", vfa=vfa)
     bot_play = bot_play_wrapper(bot)
 
