@@ -94,6 +94,7 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
     iter_count = 0
     c_counter = 0
     game_number = 0
+    learning_rate = 0.002
 
     action_vfa = VFA()
     evaluation_vfa = VFA()
@@ -111,7 +112,7 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
         opponent_vfa.load_state_dict(torch.load(opponent_vfa_file), strict=False)
 
 
-    adam = torch.optim.Adam(action_vfa.parameters(), lr=0.001)
+    adam = torch.optim.Adam(action_vfa.parameters(), lr=learning_rate)
     scheduler = StepLR(adam, 100, 0.5)
     loss_fn = nn.MSELoss()
 
@@ -145,6 +146,8 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
             game_number = g
             c_counter = 0
             last_five_games = []
+            for ad in adam.param_groups:
+                ad['lr'] = learning_rate
         e = 1/(g-game_number+40)**0.7
 
         replay_buffer = replay_buffer[-4000:]
@@ -165,16 +168,17 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
             if move2 is not None: 
             #     # if game ended, add information for bot2 before stopping loop
                 if outcome is not None:
-                    reward2 = get_reward(last_board2, board, last_board1, move2, move1, white=False)
+                    reward2 = get_reward(last_board2, board, last_board1, move2, move1, white=bot2.w)
+                    pov_board = board if board.turn else board.mirror()
                     replay_buffer.append((
                             features2, 
                             checked_feature2, 
                             reward2, 
-                            board.mirror()
+                            pov_board
                     ))
-                    board.push_uci("0000") # push null move for bot2, so that it's the turn of bot1 again
+                    pov_board.push_uci("0000") # push null move for bot2, so that it's the turn of bot1 again
                     factor = -1 if (abs(reward2) == reward_spec["win"]) else 1
-                    replay_buffer.append((features1, checked_feature1, factor * reward2, board))
+                    replay_buffer.append((features1, checked_feature1, factor * reward2, pov_board.mirror()))
                     break
 
             last_board2 = board.copy()
@@ -185,18 +189,19 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
             
             if train_white: 
                 if move2 is not None: 
-                    reward1 = get_reward(last_board1, board, last_board2, move1, move2, white=True)
+                    reward1 = get_reward(last_board1, board, last_board2, move1, move2, white=bot1.w)
+                    pov_board = board if board.turn else board.mirror()
                     replay_buffer.append((features1, checked_feature1, reward1, board))
 
-                    # if game ended, add information for bot2 before stopping loop
+                    # if game ended, add other perspective before stopping the loop
                     if outcome is not None:
                         factor = -1 if (abs(reward1) == reward_spec["win"]) else 1
-                        board.push_uci("0000") # push null move for bot1, so that it's the turn of bot2 again
+                        pov_board.push_uci("0000") # push null move for bot1, so that it's the turn of bot2 again
                         replay_buffer.append((
                             features2, 
                             checked_feature2, 
                             factor * reward1, 
-                            board.mirror()
+                            pov_board.mirror()
                         ))
                         break
             train_white = True # if train_white was False, bot2 starts
@@ -244,6 +249,8 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
                     evaluation_vfa.load_state_dict(action_vfa.state_dict())
                     for param in evaluation_vfa.parameters(): 
                         param.requires_grad = False
+                    for ad in adam.param_groups:
+                        ad['lr'] = learning_rate
                 
                 avg_loss.append(loss)
             else: 
@@ -268,8 +275,8 @@ def train(run, action_vfa_file=None, evaluation_vfa_file=None, opponent_vfa_file
 
 if __name__ == "__main__": 
     train(
-        run="v8b",
-        action_vfa_file="out/models/v8/m_510_iter_44622.ckpt", 
-        evaluation_vfa_file="out/models/v8/m_480_iter_41792.ckpt", 
-        opponent_vfa_file="out/models/v8/m_480_iter_41792.ckpt", 
+        run="v8c",
+        action_vfa_file="out/models/v8b/m_690_iter_62338.ckpt", 
+        evaluation_vfa_file="out/models/v8b/m_690_iter_62338.ckpt", 
+        opponent_vfa_file="out/models/v8b/m_690_iter_62338.ckpt", 
         )
