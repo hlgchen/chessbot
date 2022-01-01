@@ -2,7 +2,7 @@ import pygame
 import chess
 import time
 import torch
-from bot.bots import HaiBotLong
+from bot.bots import HaiBotLong, HaiBotLongs
 from bot.model import VFA
 
 pygame.init()
@@ -150,14 +150,47 @@ def mark_last_move(last_move, screen):
             screen.blit(s, map_chess_square_coordinates(square)) 
 
 
+def get_single_bot(path, color): 
+    bot_vfa = VFA()
+    bot_vfa.load_state_dict(torch.load(path))
+    bot = HaiBotLong(color=color, vfa=bot_vfa)
+    return bot
+
+
+def get_ensemble_bot(path_ls, color): 
+    bot_vfa_ls = []
+    for path in path_ls: 
+        bot_vfa = VFA()
+        bot_vfa.load_state_dict(torch.load(path))
+        bot_vfa_ls.append(bot_vfa)
+    bot = HaiBotLongs(vfa_ls=bot_vfa_ls, color=color,)
+    return bot
+
+
+
 def main():             
-    # load model
-    bot_path = "out/models/v8/m_490_iter_42784.ckpt"
-    vfa = VFA()
-    vfa.load_state_dict(torch.load(bot_path))
-    # initialize bot
-    bot = HaiBotLong(color="B", vfa=vfa)
-    bot_play = bot_play_wrapper(bot)
+    # load model, 490, 410, 690, (810?)
+    # bot_path = "out/models/v8/m_490_iter_42784.ckpt"
+
+    # bot_path = "out/models/v8b/m_690_iter_62338.ckpt"
+    # bot = get_single_bot(bot_path, color="B")
+
+    bot_path_ls = [ 
+    "out/models/v8/m_410_iter_34868.ckpt",
+    "out/models/v8/m_490_iter_42784.ckpt",
+    # "out/models/v8b/m_680_iter_61158.ckpt",
+    "out/models/v8b/m_690_iter_62338.ckpt",
+    # "out/models/v8b/m_690_iter_62338.ckpt",
+    "out/models/v8b/m_750_iter_68319.ckpt", 
+    "out/models/v8b/m_810_iter_74550.ckpt",
+    # "out/models/v8b/m_830_iter_76270.ckpt",
+    # "out/models/v8b/m_880_iter_81177.ckpt", 
+    "out/models/v8b/m_950_iter_88179.ckpt", 
+    # "out/models/v8b/m_1010_iter_93755.ckpt", 
+    ]
+    bot = get_ensemble_bot(bot_path_ls, color="B")
+
+    bot_play = bot_play_wrapper(bot, e=0.0001)
 
     move = [None, None]
     opponent_turn = False

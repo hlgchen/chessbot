@@ -2,7 +2,6 @@ import numpy as np
 import torch 
 from .model import VFA, BoardMoveTransformer
 
-
 class HaiBotLong():
     def __init__(self, color="W", vfa=None): 
         self.w = color == "W"
@@ -31,7 +30,7 @@ class HaiBotLong():
             param.requires_grad = False
 
 
-    def select_move(self, values, action_space, e): 
+    def select_move(self, values, action_space, e, power=4): 
         """
         Samples a move from the action_space, given values calculated by vfa and e. 
         With probability e a random move is chosen, with probability (1-e) a move is chosen 
@@ -51,7 +50,7 @@ class HaiBotLong():
         """
         top3 = values.topk(min(3, values.shape[0]), dim=0)[0].min()
         max_mask = values.where(values >= top3, torch.Tensor([0])).double().detach()
-        max_mask = (max_mask - max_mask.min())**4
+        max_mask = (max_mask - max_mask.min())**power
         # max_mask = (values == values.max()).double()
 
         p = torch.nan_to_num(max_mask/max_mask.sum(), 0) * (1-e)
@@ -136,3 +135,49 @@ class HaiBotLong():
             return move, features, checked_feature
 
 
+class HaiBotLongs(HaiBotLong):
+    """Ensembling of several HaiBotLong bots, their value prediction is averaged.""" 
+    def __init__(self, vfa_ls, color="W"): 
+        super().__init__(color=color)
+        self.vfa_ls = vfa_ls
+
+
+    def get_best_action(self, board, vfa_ls, e=0): 
+        """
+        """
+        action_space = [str(m) for m in board.legal_moves] 
+        board_list = []
+        for move in action_space:
+            hypo_board = board.copy() 
+            hypo_board.push_uci(move)
+            board_list.append(
+                (board, hypo_board)
+                )
+
+        move = None
+        features =None
+        checked_feature=None
+        if len(action_space) > 0: 
+            x, checked = self.board_move_transformer.encode_board_move(board_list)
+            values = []
+            for vfa in vfa_ls: 
+                values.append(vfa(x, checked).squeeze(dim=-1))
+            values = torch.stack(values, dim=0).mean(dim=0)
+            if e > 0: 
+                move_id = self.select_move(values, action_space, e, power=10)
+            else: 
+                move_id = values.argmax().item()
+
+            move = action_space[move_id]
+            features = x[move_id].unsqueeze(0)
+            checked_feature = checked[move_id].unsqueeze(0)
+        return move, features, checked_feature
+
+
+    def play(self, _board, e=0.05, *args, **kwargs): 
+        """
+        """
+        board = _board.copy() if self.w else _board.mirror()
+        move, features, checked_feature = self.get_best_action(board, self.vfa_ls)
+        move = move if self.w else self.mirror_move(move)
+        return move
