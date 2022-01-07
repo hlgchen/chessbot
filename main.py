@@ -1,9 +1,11 @@
+import os
+import time
 import pygame
 import chess
-import time
 import torch
 from bot.bots import HaiBotLong, HaiBotLongs
 from bot.model import VFA
+
 
 pygame.init()
 pygame.font.init()
@@ -178,28 +180,13 @@ def get_ensemble_bot(path_ls, color):
 
 
 def main():
-    # load model, 490, 410, 690, (810?)
-    # bot_path = "out/models/v8/m_490_iter_42784.ckpt"
+    bot_path_ls = []
+    path = "out/models/gameplay"
+    for f in os.listdir(path):
+        bot_path_ls.append(os.path.join(path, f))
 
-    # bot_path = "out/models/v8b/m_690_iter_62338.ckpt"
-    # bot = get_single_bot(bot_path, color="B")
-
-    bot_path_ls = [
-        "out/models/v8/m_410_iter_34868.ckpt",
-        "out/models/v8/m_490_iter_42784.ckpt",
-        # "out/models/v8b/m_680_iter_61158.ckpt",
-        "out/models/v8b/m_690_iter_62338.ckpt",
-        # "out/models/v8b/m_690_iter_62338.ckpt",
-        # "out/models/v8b/m_750_iter_68319.ckpt",
-        "out/models/v8b/m_810_iter_74550.ckpt",
-        # "out/models/v8b/m_830_iter_76270.ckpt",
-        # "out/models/v8b/m_880_iter_81177.ckpt",
-        "out/models/v8b/m_950_iter_88179.ckpt",
-        "out/models/v8c/m_740_iter_67123.ckpt",
-    ]
     bot = get_ensemble_bot(bot_path_ls, color="B")
-
-    bot_play = bot_play_wrapper(bot, e=0)
+    bot_play = bot_play_wrapper(bot, e=0.00001)
 
     move = [None, None]
     opponent_turn = False
